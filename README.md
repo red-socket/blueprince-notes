@@ -1,5 +1,7 @@
 # Blue Prince Notes
 
+![Blue Prince Notes](docs/images/header.jpg)
+
 An in-game notebook for **Blue Prince**, as a [MelonLoader](https://github.com/LavaGang/MelonLoader) mod.
 
 Press F2 during a day and a ruled notebook page opens over the game. You can write notes, search them later, and each one shows the day and the room where you started it.
