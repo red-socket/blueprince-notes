@@ -14,7 +14,7 @@ Press F2 during a day and a ruled notebook page opens over the game. You can wri
 - F2 again, Esc on the list, or a click outside the page closes it. Your character is unfrozen once you let go of the key or mouse button, so the same press can't also open the pause menu or click something in the room.
 - Ctrl+F2 is the emergency key. It closes the notebook and unfreezes your character, whatever the game is doing. Use it if you ever get stuck.
 
-If F2 can't open the notebook right now, a short message at the bottom of the screen says why. The line at the bottom of the page lists the main keys.
+If F2 can't open the notebook right now, a short message near the bottom of the screen tells you. The line at the bottom of the page lists the main keys.
 
 ### The list
 
@@ -59,12 +59,12 @@ The in-game calendar date and the time of day are left out on purpose, because s
 
 ## Where notes are saved
 
-All notes are kept in one file, `UserData/BluePrinceNotes/notes.json` in the game folder. There is one notebook for all save slots.
+All notes are kept in one file, `UserData/BluePrinceNotes/notes.json`, in the game folder (with r2modman, in the profile folder instead: Settings → Browse profile folder). There is one notebook for all save slots.
 
 - Notes are saved a moment after you stop typing, every few seconds while you keep typing, and whenever you leave a note, close the notebook, switch to another window, load a new scene or quit. A crash can lose the last few seconds of typing.
 - Each save is written to `notes.json.tmp` first and then replaces `notes.json`, so a crash during a save leaves the old file whole.
 - The first save of each session copies the previous file to `notes.json.bak`.
-- A `notes.json` that can't be read is never overwritten. The mod keeps a copy as `notes.json.corrupt-<date>-<time>` and loads the notes from `notes.json.bak` instead. If `notes.json` is missing, the backup is loaded too.
+- A `notes.json` that can't be read isn't lost. Before anything is saved over it, the mod keeps a copy as `notes.json.corrupt-<date>-<time>` and loads the notes from `notes.json.bak` instead. If `notes.json` is missing, the backup is loaded too.
 - If that copy can't be made, or the file was written by a newer version of the mod, nothing is saved for the rest of the session, and the notebook's header says `NOT SAVED (see the MelonLoader log)`. The same warning shows while a save keeps failing; the mod retries every few seconds.
 
 The file is plain, indented JSON (UTF-8), so you can read it, back it up or move it to another computer. Each note has its `text`, `created` and `edited` times (real-world time, in UTC, used for sorting), and a `context` with the day, area, room and rank. The context also stores the house tile, save slot, run seed and play time at the start of the day, which the notebook doesn't show. Close the game before editing the file by hand.
@@ -109,14 +109,14 @@ To check that the mod loaded, look for Blue Prince Notes in `MelonLoader/Latest.
 
 ## Configuration
 
-Settings are in `UserData/MelonPreferences.cfg`, under `[BluePrinceNotes]`. The file is created on the first launch. There's no in-game settings page; edit the file with the game closed.
+Settings are in `UserData/MelonPreferences.cfg` (with r2modman, in the profile folder), under `[BluePrinceNotes]`. The file is created on the first launch. There's no in-game settings page; edit the file with the game closed.
 
 | Setting | Default | Meaning |
 |---|---|---|
 | `Notepad_Enabled` | `true` | Turns the notebook on or off. |
-| `Notepad_Key` | `F2` | Opens and closes the notebook. A Unity key name, with `Ctrl+`, `Shift+` or `Alt+` in front if you like (e.g. `F3`, `Ctrl+F3`). |
+| `Notepad_Key` | `F2` | Opens and closes the notebook. A Unity key name, with `Ctrl+`, `Shift+` or `Alt+` in front if you like (e.g. `F3`, `Ctrl+F3`). Pick a key you don't type in notes, such as a function key: it also closes the notebook while you write. |
 | `Notepad_EmergencyKey` | `Ctrl+F2` | Closes the notebook and unfreezes your character, whatever the game is doing. |
-| `Notepad_Font` | `HandCAVE SDF - GENERIC` | Name of a game font. If it isn't found, `TypeNeat SDF` is used. |
+| `Notepad_Font` | `HandCAVE SDF - GENERIC` | Name of a game font (case doesn't matter). If it isn't found, `TypeNeat SDF` is used, then TextMeshPro's default font. |
 | `Notepad_FontScale` | `0.03` | Text size, as a fraction of the screen height (0.01 to 0.1). |
 | `Notepad_InputMethod` | `true` | Turns the input method on while you type. Needed for accents typed with dead keys (ibus under Proton) and for IME languages. |
 | `Notepad_Log` | `false` | Debugging aid: writes what the notebook does to the MelonLoader log. |
@@ -141,7 +141,7 @@ A key setting that can't be read falls back to its default, with a warning in th
 - Built against MelonLoader 0.7.3 and the Steam version of Blue Prince (Unity 6000.0.58).
 - Works alongside [Blue Prince QoL](https://github.com/red-socket/blueprinceqol). Their default keys don't overlap. If QoL's emergency unfreeze key is pressed while the notebook is open, the notebook freezes your character again.
 - [UnityExplorer](https://github.com/yukieiji/UnityExplorer) works alongside it.
-- The mod doesn't patch the game's code. Game updates can still rename things it reads; if the notebook stops opening or a note's day or room goes missing after an update, check `MelonLoader/Latest.log` for warnings from Blue Prince Notes.
+- The mod doesn't patch the game's code. Game updates can still rename things it reads. If the notebook stops opening after an update, `MelonLoader/Latest.log` has a line from Blue Prince Notes with the reason each time F2 is refused (`can't open now: …`). If new notes lose their day or room, the mod can no longer read them from the game; nothing else is affected.
 
 ## Building from source
 
