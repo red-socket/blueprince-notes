@@ -1,0 +1,12 @@
+# Build output
+bin/
+obj/
+
+# Editors / OS
+.vs/
+.idea/
+*.user
+.DS_Store
+
+# Local testing helpers, never published
+src/BluePrinceNotes/Dev/

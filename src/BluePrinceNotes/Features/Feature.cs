@@ -1,0 +1,25 @@
+using MelonLoader;
+
+namespace BluePrinceNotes.Features;
+
+public abstract class Feature
+{
+    public abstract string Name { get; }
+    protected virtual string Description => "";
+    protected virtual bool DefaultEnabled => true;
+    internal int Errors;
+
+    private MelonPreferences_Entry<bool> _enabled;
+    public bool Enabled => _enabled.Value;
+
+    public void Init()
+    {
+        _enabled = Core.Prefs.CreateEntry($"{Name}_Enabled", DefaultEnabled, $"{Name}: enabled", Description);
+        CreatePrefs();
+    }
+
+    protected virtual void CreatePrefs() { }
+    public virtual void OnSceneLoaded(string sceneName) { }
+    public virtual void OnUpdate() { }
+    public virtual void OnLateUpdate() { }
+}
