@@ -85,6 +85,8 @@ internal sealed class Notebook
         _wheelRest = 0f;
         _dragging = false;
         _lastClickAt = -1f;
+        _swallowClickUntil = -1f;
+        _nextAutoScroll = 0f;
     }
 
     /// <summary>The notepad closed (for any reason): leave the editor and save.</summary>
@@ -119,12 +121,18 @@ internal sealed class Notebook
     public bool HandleInput(NotepadView view)
     {
         bool esc = Input.GetKeyDown(KeyCode.Escape);
-        if (Input.GetMouseButtonDown(0) && !view.InsidePage(Input.mousePosition)) return true;
+        if (ClickDown && !view.InsidePage(Input.mousePosition)) return true;
         return _mode == Mode.List ? ListInput(view, esc) : EditorInput(view, esc);
     }
 
     private const float DoubleClickTime = 0.35f;
-    private float _wheelRest, _lastClickAt = -1f;
+    private const float AutoScrollStep = 0.06f;  // a drag past the edge scrolls about 16 lines a second
+    private float _wheelRest, _lastClickAt = -1f, _swallowClickUntil = -1f, _nextAutoScroll, _clicksFrom;
+
+    /// <summary>The game window got focus back: the click that did it is not a click on the notepad.</summary>
+    public void FocusGained() => _clicksFrom = Time.unscaledTime + 0.3f;
+
+    private bool ClickDown => Input.GetMouseButtonDown(0) && Application.isFocused && Time.unscaledTime >= _clicksFrom;
     private Vector2 _lastClickPos, _lastMouse;
     private bool _dragging, _hoverNow;
 
@@ -167,13 +175,15 @@ internal sealed class Notebook
 
         int count = Shown.Count;
 
-        // A click on a note opens it.
-        if (Input.GetMouseButtonDown(0))
+        // A click on a note opens it. The second click of a double click must not then move the caret.
+        if (ClickDown)
         {
             int row = view.RowAt(Input.mousePosition);
             if (row >= 0 && row < count)
             {
                 _selected = row;
+                _swallowClickUntil = Time.unscaledTime + DoubleClickTime;
+                _lastClickPos = Input.mousePosition;
                 OpenNote(Shown[row]);
                 return false;
             }
@@ -320,7 +330,11 @@ internal sealed class Notebook
         if (!composing)
         {
             Vector2 m = Input.mousePosition;
-            if (Input.GetMouseButtonDown(0) && view.InsideText(m))
+            if (ClickDown && Time.unscaledTime < _swallowClickUntil && (m - _lastClickPos).sqrMagnitude < 100f)
+            {
+                _swallowClickUntil = -1f;  // the second half of the double click that opened this note
+            }
+            else if (ClickDown && view.InsideText(m))
             {
                 int at = view.IndexAt(m);
                 if (at >= 0)
@@ -328,7 +342,8 @@ internal sealed class Notebook
                     bool dbl = Time.unscaledTime - _lastClickAt < DoubleClickTime && (m - _lastClickPos).sqrMagnitude < 100f;
                     if (dbl)
                     {
-                        _buffer.SelectWordAt(at);
+                        int c = view.CharAt(m);  // the glyph under the pointer, not the nearest caret position
+                        _buffer.SelectWordAt(c >= 0 ? c : at);
                         _dragging = false;
                         _lastClickAt = -1f;
                     }
@@ -344,7 +359,10 @@ internal sealed class Notebook
             }
             else if (_dragging && Input.GetMouseButton(0))
             {
-                int at = view.IndexAt(m);
+                // Past the top or bottom edge, step one line further on a timer, whatever the frame rate.
+                bool step = Time.unscaledTime >= _nextAutoScroll;
+                int at = view.IndexAt(m, step ? 1 : 0);
+                if (step) _nextAutoScroll = Time.unscaledTime + AutoScrollStep;
                 if (at >= 0 && at != _buffer.Caret)
                 {
                     _buffer.MoveTo(at, true);
@@ -421,6 +439,7 @@ internal sealed class Notebook
             Core.Log.Warning($"[Notepad] this note is longer than {MaxNoteLength} characters; editing it keeps the first {MaxNoteLength}");
         _buffer.Reset(note.Text);
         _mode = Mode.Editor;
+        _dragging = false;  // a drag left running when Esc was pressed must not carry over
         _goalX = float.NaN;
         _blinkFrom = Time.unscaledTime;
         _deleteArmed = null;

@@ -860,14 +860,39 @@ internal sealed class NotepadView
         return n < _listCount ? n : -1;
     }
 
-    /// <summary>The text index nearest a screen point in the editor (above or below the view counts as the edge).</summary>
-    public int IndexAt(Vector2 screen)
+    /// <summary>
+    /// The text index nearest a screen point in the editor. The line is kept within the visible lines, plus
+    /// <paramref name="beyond"/> lines past them (a drag past the edge scrolls one line at a time).
+    /// </summary>
+    public int IndexAt(Vector2 screen, int beyond = 0)
     {
-        if (_body == null || !RectTransformUtility.ScreenPointToLocalPointInRectangle(_body.rectTransform, screen, null, out var local))
-            return -1;
+        if (!BodyLine(screen, beyond, out int line, out float x)) return -1;
+        return _n2 == 0 ? 0 : AtX(line, x);
+    }
+
+    /// <summary>The index of the character under a screen point (for a double click), or -1.</summary>
+    public int CharAt(Vector2 screen)
+    {
+        if (!BodyLine(screen, 0, out int line, out float x)) return -1;
         if (_n2 == 0) return 0;
-        int line = Mathf.Clamp(Mathf.FloorToInt(-local.y / _L), 0, LineCount - 1);
-        return AtX(line, local.x);
+        if (line >= _lines) return _laidText.Length;
+        for (int k = _lFirst[line]; k <= _lLast[line]; k++)
+            if (_char[k] == '\n' || x < _advance[k]) return _index[k];
+        return LineEndIndex(line);
+    }
+
+    private bool BodyLine(Vector2 screen, int beyond, out int line, out float x)
+    {
+        line = 0;
+        x = 0f;
+        if (_body == null || !RectTransformUtility.ScreenPointToLocalPointInRectangle(_body.rectTransform, screen, null, out var local))
+            return false;
+        int top = Mathf.RoundToInt(_scroll / _L);
+        line = Mathf.FloorToInt(-local.y / _L);
+        line = Mathf.Clamp(line, top - beyond, top + _n - 1 + beyond);
+        line = Mathf.Clamp(line, 0, LineCount - 1);
+        x = local.x;
+        return true;
     }
 
     // ------------------------------------------------------------------ building

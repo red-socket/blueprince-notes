@@ -132,6 +132,7 @@ public class NotepadFeature : Feature
         _toast.Tick();
         bool focused = Application.isFocused;
         if (_wasFocused && !focused) _book.FocusLost();
+        if (!_wasFocused && focused) _book.FocusGained();
         _wasFocused = focused;
 
         try { Step(); }
@@ -222,7 +223,7 @@ public class NotepadFeature : Feature
         _clean = true;
         CodeGuard.Engage();
         InputMethodOn();
-        GamePointer.Hide();
+        if (GamePointer.Texture != null) GamePointer.Hide();
         _view.ResetPointer();
         _book.Opened();
         Debug($"opened, player FSM in '{Player.State}', frozen={Player.Frozen}; code guard: {CodeGuard.Summary}");
@@ -235,7 +236,7 @@ public class NotepadFeature : Feature
     {
         CodeGuard.Tick();
         Estate.CancelRecordingHold();
-        GamePointer.Hide();
+        if (GamePointer.Texture != null) GamePointer.Hide();  // without our pointer art, keep the game's
         if (!Watchdog()) return;
 
         // The hotkey closes; the notebook asks to close on Esc. The frame that opened the notepad is skipped: its keys
