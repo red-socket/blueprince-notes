@@ -20,6 +20,8 @@ public partial class Core : MelonMod
         Log = LoggerInstance;
         Prefs = MelonPreferences.CreateCategory("BluePrinceNotes");
 
+        _features.Add(new NotepadFeature());
+
         AddDevFeatures(_features);
 
         foreach (var f in _features)
@@ -32,27 +34,30 @@ public partial class Core : MelonMod
     {
         FsmHooks.OnSceneLoaded();
         foreach (var f in _features)
-            Safe(f, () => f.OnSceneLoaded(sceneName));
+            Run(f, () => f.OnSceneLoaded(sceneName));
     }
 
     public override void OnUpdate()
     {
         FsmHooks.Tick(HarmonyInstance);
         foreach (var f in _features)
-            if (f.Enabled) Safe(f, f.OnUpdate);
+        {
+            f.PollEnabled();
+            if (f.Enabled) Run(f, f.OnUpdate);
+        }
     }
 
     public override void OnLateUpdate()
     {
         foreach (var f in _features)
-            if (f.Enabled) Safe(f, f.OnLateUpdate);
+            if (f.Enabled) Run(f, f.OnLateUpdate);
     }
 
     // Testing helpers, only in builds that include them.
     static partial void AddDevFeatures(List<Feature> features);
 
     // One broken feature must not take the others (or the game) down with it.
-    private static void Safe(Feature f, System.Action a)
+    internal static void Run(Feature f, System.Action a)
     {
         try { a(); }
         catch (System.Exception e)
