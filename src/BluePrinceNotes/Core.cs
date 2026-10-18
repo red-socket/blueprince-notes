@@ -47,6 +47,12 @@ public partial class Core : MelonMod
         }
     }
 
+    public override void OnApplicationQuit()
+    {
+        foreach (var f in _features)
+            Run(f, f.OnQuit);
+    }
+
     public override void OnLateUpdate()
     {
         foreach (var f in _features)

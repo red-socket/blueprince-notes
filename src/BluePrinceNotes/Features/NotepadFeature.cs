@@ -1,5 +1,4 @@
 using System;
-using System.Text;
 using BluePrinceNotes.Game;
 using BluePrinceNotes.UI;
 using BluePrinceNotes.Util;
@@ -10,7 +9,8 @@ using UnityEngine;
 namespace BluePrinceNotes.Features;
 
 /// <summary>
-/// The notepad: a hotkey opens a panel you can type into during a day.
+/// The notepad: a hotkey opens the notebook (list of notes and editor, see Notebook) during a day. This class
+/// owns opening, closing and the player; Notebook owns the notes and the keys while open.
 ///
 /// Typed keys always reach the game too (legacy Input has no way to consume a key), so while the notepad is
 /// open the player is frozen the way the pause menu does it (QuickFreeze, see Player), which makes movement,
@@ -25,8 +25,8 @@ namespace BluePrinceNotes.Features;
 /// player for its own reasons (a cutscene, a card) or opens a menu, the notepad closes and leaves the player to
 /// the game.
 ///
-/// Closing hides the panel at once and unfreezes once Esc and the hotkey are released, so the key press can't
-/// also open the pause menu. The emergency key closes and unfreezes no matter what.
+/// Closing (the hotkey anywhere, Esc on the list) hides the panel at once and unfreezes once Esc and the hotkey are
+/// released, so the key press can't also open the pause menu. The emergency key closes and unfreezes no matter what.
 /// </summary>
 public class NotepadFeature : Feature
 {
@@ -38,12 +38,10 @@ public class NotepadFeature : Feature
     private const float MaxUnfreezeDelay = 1f;
     private const int MaxRefreezes = 5;          // within RefreezeWindow, then give the player back
     private const float RefreezeWindow = 3f;
-    private const int MaxChars = 20000;
-    private const int ShownChars = 1500;
 
     private MelonPreferences_Entry<string> _keyPref, _emergencyPref, _fontPref;
     private MelonPreferences_Entry<float> _fontScale;
-    private MelonPreferences_Entry<bool> _log, _ime;
+    private MelonPreferences_Entry<bool> _log, _ime, _24h;
     private Hotkey _key, _emergency;
 
     private enum Phase { Closed, Open, Closing }
@@ -69,21 +67,22 @@ public class NotepadFeature : Feature
     private bool _imeChanged;
     private IMECompositionMode _imeBefore;
 
-    private readonly StringBuilder _text = new();
     private readonly NotepadView _view = new();
-    private bool _dirty = true, _caretShown;
-    private string _bodyCache = "", _compShown = "";
+    private readonly Notebook _book = new();
+    private bool _wasFocused = true;
 
     protected override void CreatePrefs()
     {
         _keyPref = Core.Prefs.CreateEntry("Notepad_Key", "F2", "Notepad: hotkey",
-            "Opens and closes the notepad (e.g. F2, F3, Ctrl+N)");
+            "Opens and closes the notepad (e.g. F2, F3, Ctrl+F3)");
         _emergencyPref = Core.Prefs.CreateEntry("Notepad_EmergencyKey", "Ctrl+F2", "Notepad: emergency key",
             "Closes the notepad and unfreezes the player, whatever the game is doing");
         _fontPref = Core.Prefs.CreateEntry("Notepad_Font", "HandCAVE SDF - GENERIC", "Notepad: font",
             "Name of a game font (TMP font asset)");
         _fontScale = Core.Prefs.CreateEntry("Notepad_FontScale", 0.03f, "Notepad: font size",
             "Text size, as a fraction of the screen height");
+        _24h = Core.Prefs.CreateEntry("Notepad_24Hour", false, "Notepad: 24-hour clock",
+            "Shows the in-game time on notes as 15:45 instead of 3:45 PM");
         _ime = Core.Prefs.CreateEntry("Notepad_InputMethod", true, "Notepad: input method",
             "Turns the input method on while typing. Needed for accents typed with dead keys (ibus under Proton) and for IME languages");
         _log = Core.Prefs.CreateEntry("Notepad_Log", false, "Notepad: log", "Debug: log what the notepad does");
@@ -102,6 +101,8 @@ public class NotepadFeature : Feature
     {
         // The player FSM and the code listeners belong to the old scene: forget them, send nothing.
         if (_phase != Phase.Closed) Debug($"scene '{sceneName}' loaded while active; forgetting the freeze");
+        try { _book.Closed(); }
+        catch (Exception e) { Core.Log.Warning($"[{Name}] saving notes on scene load: {e.Message}"); }
         _phase = Phase.Closed;
         _ownFreeze = false;
         _freeSince = -1f;
@@ -119,8 +120,16 @@ public class NotepadFeature : Feature
         FinishClose();
     }
 
+    public override void OnQuit() => _book.Closed();
+
     public override void OnUpdate()
     {
+        // Saves: a pending one, and right away when the game loses focus (alt-tab, or about to be closed).
+        _book.Tick();
+        bool focused = Application.isFocused;
+        if (_wasFocused && !focused) _book.FocusLost();
+        _wasFocused = focused;
+
         try { Step(); }
         catch
         {
@@ -196,7 +205,7 @@ public class NotepadFeature : Feature
         _clean = true;
         CodeGuard.Engage();
         InputMethodOn();
-        _dirty = true;
+        _book.Opened();
         Debug($"opened, player FSM in '{Player.State}', frozen={Player.Frozen}; code guard: {CodeGuard.Summary}");
         Render();
     }
@@ -209,15 +218,16 @@ public class NotepadFeature : Feature
         Estate.CancelRecordingHold();
         if (!Watchdog()) return;
 
-        // F2 or Esc closes. The frame that opened the notepad is skipped: its keys were meant for the game.
+        // The hotkey closes; the notebook asks to close on Esc. The frame that opened the notepad is skipped: its keys
+        // were meant for the game.
         if (Time.frameCount != _openedFrame)
         {
-            if (_key.Down() || Input.GetKeyDown(KeyCode.Escape))
+            _book.Use24Hour = _24h.Value;
+            if (_key.Down() || _book.HandleInput(_view))
             {
                 BeginClose();
                 return;
             }
-            ReadTyping();
         }
         Render();
     }
@@ -251,71 +261,10 @@ public class NotepadFeature : Feature
         return Drop($"the game took over the player (state '{state}')");
     }
 
-    private void ReadTyping()
-    {
-        var s = Input.inputString;
-        if (string.IsNullOrEmpty(s)) return;
-        for (int i = 0; i < s.Length; i++)
-        {
-            char c = s[i];
-            if (c == '\b') Backspace();
-            else if (c == '\r' || c == '\n')
-            {
-                if (c == '\n' && i > 0 && s[i - 1] == '\r') continue;  // \r\n is one newline
-                Append('\n');
-            }
-            else if (c >= 0x20 && c != 0x7F) Append(c);
-        }
-    }
-
-    private void Append(char c)
-    {
-        if (_text.Length >= MaxChars) return;
-        _text.Append(c);
-        _dirty = true;
-    }
-
-    private void Backspace()
-    {
-        int n = _text.Length;
-        if (n == 0) return;
-        int cut = n >= 2 && char.IsLowSurrogate(_text[n - 1]) && char.IsHighSurrogate(_text[n - 2]) ? 2 : 1;
-        _text.Length = n - cut;
-        _dirty = true;
-    }
-
     private void Render()
     {
-        bool caret = ((int)(Time.unscaledTime * 2f) & 1) == 0;
-        // Text the input method is still composing (e.g. a dead key's accent), shown at the caret.
-        var comp = _imeChanged ? Input.compositionString ?? "" : "";
-        if (comp != _compShown)
-        {
-            _compShown = comp;
-            _dirty = true;
-        }
-        if (_dirty || caret != _caretShown)
-        {
-            var body = _text.Length > ShownChars
-                ? "..." + _text.ToString(_text.Length - ShownChars, ShownChars)
-                : _text.ToString();
-            _bodyCache = body + comp + (caret ? "|" : " ");
-            _caretShown = caret;
-            _dirty = false;
-        }
-        _view.Show(Header(), _bodyCache, _fontPref.Value, _fontScale.Value);
-    }
-
-    private string _headerCache, _headerKey;
-    private string Header()
-    {
-        var key = _keyPref.Value;
-        if (_headerKey != key)
-        {
-            _headerKey = key;
-            _headerCache = $"Notes   ({key} or Esc to close)";
-        }
-        return _headerCache;
+        _book.Use24Hour = _24h.Value;
+        if (_view.Begin(_fontPref.Value, _fontScale.Value)) _book.Render(_view, _keyPref.Value);
     }
 
     // ------------------------------------------------------------------ close
@@ -392,6 +341,8 @@ public class NotepadFeature : Feature
 
     private void Reset(bool keepFreeTime = false)
     {
+        try { _book.Closed(); }
+        catch (Exception e) { Core.Log.Warning($"[{Name}] saving notes: {e.Message}"); }
         InputMethodRestore();
         CodeGuard.Release();
         _phase = Phase.Closed;

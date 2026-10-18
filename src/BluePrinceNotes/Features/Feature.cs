@@ -36,4 +36,6 @@ public abstract class Feature
     public virtual void OnSceneLoaded(string sceneName) { }
     public virtual void OnUpdate() { }
     public virtual void OnLateUpdate() { }
+    /// <summary>The game is quitting (a clean quit; nothing runs on a crash).</summary>
+    public virtual void OnQuit() { }
 }
