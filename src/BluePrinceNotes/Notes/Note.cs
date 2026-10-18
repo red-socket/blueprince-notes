@@ -36,12 +36,13 @@ public sealed class Note
     public bool IsBlank => string.IsNullOrWhiteSpace(Text);
 }
 
-/// <summary>Where and when in the game a note was started. What the game couldn't tell keeps its default.</summary>
+/// <summary>
+/// Where in the game, and on which day, a note was started. What the game couldn't tell keeps its default.
+/// No calendar date or time of day: they matter for some puzzles.
+/// </summary>
 public sealed class NoteContext
 {
     public int Day { get; set; }                // 0 = unknown
-    public string Date { get; set; } = "";      // in-game calendar date, yyyy-MM-dd
-    public int Minute { get; set; } = -1;       // in-game time, minutes after midnight
     public string Area { get; set; } = "";      // House, Grounds or Underground
     public string Room { get; set; } = "";      // room or outdoor area, as the HUD shows it
     public int Rank { get; set; }               // house only

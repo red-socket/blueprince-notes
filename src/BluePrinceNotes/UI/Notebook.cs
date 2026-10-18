@@ -11,7 +11,7 @@ namespace BluePrinceNotes.UI;
 /// <summary>
 /// What the notepad shows and does while it has the keyboard: the list of notes and the editor.
 ///
-/// List: newest change first; the first line of a note is its title, with where and when it was started below.
+/// List: newest change first; the first line of a note is its title, with the day and place it was started below.
 /// Typing searches (accents and case ignored), Up/Down pick, Enter opens, Ctrl+N starts a new note (Enter starts one
 /// with the search text when nothing matches), Delete twice deletes. Esc clears the search, then closes.
 /// Editor: arrows (Ctrl = by word), Home/End (Ctrl = whole note), PageUp/PageDown, Shift selects, Ctrl+A/C/X/V,
@@ -58,13 +58,11 @@ internal sealed class Notebook
         _store = new NoteStore(dir, m => Core.Log.Msg($"[Notepad] {m}"), m => Core.Log.Warning($"[Notepad] {m}"));
     }
 
-    public bool Use24Hour { get; set; }
-
     private static double Now => Time.unscaledTimeAsDouble;
 
     // ------------------------------------------------------------------ lifecycle
 
-    /// <summary>The notepad opened: remember where the player is (the clock keeps running while it's open).</summary>
+    /// <summary>The notepad opened: remember where the player is, for notes started while it's open.</summary>
     public void Opened()
     {
         if (!_loaded)
@@ -376,7 +374,7 @@ internal sealed class Notebook
 
     private static NoteContext Copy(NoteContext c) => new()
     {
-        Day = c.Day, Date = c.Date, Minute = c.Minute, Area = c.Area, Room = c.Room, Rank = c.Rank, Tile = c.Tile,
+        Day = c.Day, Area = c.Area, Room = c.Room, Rank = c.Rank, Tile = c.Tile,
         SaveSlot = c.SaveSlot, Seed = c.Seed, DayStartClock = c.DayStartClock,
     };
 
@@ -401,8 +399,9 @@ internal sealed class Notebook
             {
                 var title = n.Title;
                 if (title.Length == 0) title = "(empty)";
-                var meta = n == _deleteArmed ? "Press Delete again to delete this note" : GameContext.Describe(n.Context, Use24Hour);
-                _rows.Add(new ListRow(title, meta));
+                bool deleting = n == _deleteArmed;
+                var meta = deleting ? "Press Delete again to delete this note" : GameContext.Describe(n.Context);
+                _rows.Add(new ListRow(title, meta, deleting));
             }
             return _shown;
         }
@@ -432,7 +431,7 @@ internal sealed class Notebook
             _resetScroll = false;
             view.ResetScroll();
         }
-        var ctx = GameContext.Describe(_editing?.Context, Use24Hour);
+        var ctx = GameContext.Describe(_editing?.Context);
         bool caretOn = ((Time.unscaledTime - _blinkFrom) % 1f) < 0.55f;
         string composing = "";
         try { composing = Input.compositionString ?? ""; } catch { /* no input method */ }

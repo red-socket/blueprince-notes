@@ -150,7 +150,6 @@ internal sealed class NoteStore
                 if (n == null || string.IsNullOrWhiteSpace(n.Text)) continue;
                 n.Id ??= Guid.NewGuid().ToString("N");
                 n.Context ??= new NoteContext();
-                n.Context.Date ??= "";
                 n.Context.Area ??= "";
                 n.Context.Room ??= "";
                 notes.Add(n);

@@ -41,7 +41,7 @@ public class NotepadFeature : Feature
 
     private MelonPreferences_Entry<string> _keyPref, _emergencyPref, _fontPref;
     private MelonPreferences_Entry<float> _fontScale;
-    private MelonPreferences_Entry<bool> _log, _ime, _24h;
+    private MelonPreferences_Entry<bool> _log, _ime;
     private Hotkey _key, _emergency;
 
     private enum Phase { Closed, Open, Closing }
@@ -81,8 +81,6 @@ public class NotepadFeature : Feature
             "Name of a game font (TMP font asset)");
         _fontScale = Core.Prefs.CreateEntry("Notepad_FontScale", 0.03f, "Notepad: font size",
             "Text size, as a fraction of the screen height");
-        _24h = Core.Prefs.CreateEntry("Notepad_24Hour", false, "Notepad: 24-hour clock",
-            "Shows the in-game time on notes as 15:45 instead of 3:45 PM");
         _ime = Core.Prefs.CreateEntry("Notepad_InputMethod", true, "Notepad: input method",
             "Turns the input method on while typing. Needed for accents typed with dead keys (ibus under Proton) and for IME languages");
         _log = Core.Prefs.CreateEntry("Notepad_Log", false, "Notepad: log", "Debug: log what the notepad does");
@@ -222,7 +220,6 @@ public class NotepadFeature : Feature
         // were meant for the game.
         if (Time.frameCount != _openedFrame)
         {
-            _book.Use24Hour = _24h.Value;
             if (_key.Down() || _book.HandleInput(_view))
             {
                 BeginClose();
@@ -263,7 +260,6 @@ public class NotepadFeature : Feature
 
     private void Render()
     {
-        _book.Use24Hour = _24h.Value;
         if (_view.Begin(_fontPref.Value, _fontScale.Value)) _book.Render(_view, _keyPref.Value);
     }
 

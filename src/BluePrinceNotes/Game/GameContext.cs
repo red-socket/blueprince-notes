@@ -9,12 +9,11 @@ using UnityEngine;
 namespace BluePrinceNotes.Game;
 
 /// <summary>
-/// Reads where and when the player is, for a new note. Read-only: only finds FSM variables, never creates or
-/// sets them, and every source can be missing (the field then keeps its default).
+/// Reads where the player is and which day it is, for a new note. Read-only: only finds FSM variables, never creates
+/// or sets them, and every source can be missing (the field then keeps its default).
+/// The calendar date and the time of day are left out on purpose: they matter for some puzzles, and the game
+/// doesn't show them.
 /// - Day: Global Manager int "DAY" (set once a day by DAY "Day Compare"), else Global Persistent "DAY".
-/// - Date: day 1 is Sat Nov 7, 2020 (the DAY object's "Dates" list).
-/// - Time: 8:00 AM + DAY/SYNKA PROJECT float "TEMP HOUR" (hours; else "SYNKA CLOCK" seconds). Only valid once the
-///   clock object is active, which is when the player gets control.
 /// - Room and area: the HUD's own labels. Inside the house "Rank Text" reads "Rank N" and "Room Text" is the room;
 ///   outside, the grounds and underground areas write "The Grounds" / "Underground" / " " and the area's name.
 /// - Tile: __SYSTEM/THE GRID FSM "GRID DATA" int "Current Tile" (stale outside the house, so only used inside).
@@ -28,7 +27,6 @@ internal static class GameContext
     private const string HudPath = "__SYSTEM/HUD";
     private const string GridPath = "__SYSTEM/THE GRID";
     private const string GameClockPath = "DAY/GAME CLOCK";
-    private static readonly DateTime DayZero = new(2020, 11, 6);
 
     public static NoteContext Capture()
     {
@@ -40,24 +38,7 @@ internal static class GameContext
         {
             int day = Int(gm, "DAY");
             if (day <= 0) day = Int(gp, "DAY");
-            if (day > 0)
-            {
-                c.Day = day;
-                c.Date = DayZero.AddDays(day).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-            }
-        });
-
-        Try(() =>
-        {
-            var synka = Go(gm, "SYNKA PROJECT");
-            if (synka == null || !synka.activeInHierarchy) return;
-            var fsm = FsmUtil.Get(synka);
-            float hours = Has(fsm, "TEMP HOUR") ? fsm.FsmVariables.FindFsmFloat("TEMP HOUR").Value
-                : Has(fsm, "SYNKA CLOCK") ? fsm.FsmVariables.FindFsmFloat("SYNKA CLOCK").Value / 3600f
-                : float.NaN;
-            if (!float.IsFinite(hours)) return;
-            long minutes = (long)Math.Floor((8.0 + hours) * 60.0);
-            c.Minute = (int)((minutes % 1440 + 1440) % 1440);
+            if (day > 0) c.Day = day;
         });
 
         Try(() =>
@@ -119,27 +100,17 @@ internal static class GameContext
 
     // ------------------------------------------------------------------ display
 
-    /// <summary>"Day 12 · Wed Nov 18 · 3:45 PM · Parlor (Rank 4)", skipping what's unknown.</summary>
-    public static string Describe(NoteContext c, bool use24Hour)
+    /// <summary>"Day 12 · Parlor (Rank 4)", skipping what's unknown.</summary>
+    public static string Describe(NoteContext c)
     {
         if (c == null) return "";
-        var parts = new System.Collections.Generic.List<string>(4);
+        var parts = new System.Collections.Generic.List<string>(2);
         if (c.Day > 0) parts.Add($"Day {c.Day}");
-        if (DateTime.TryParseExact(c.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d))
-            parts.Add(d.ToString("ddd MMM d", CultureInfo.InvariantCulture));
-        if (c.Minute >= 0) parts.Add(Clock(c.Minute, use24Hour));
         var place = c.Room ?? "";
         var area = c.Area ?? "";
         if (area == "House" && c.Rank > 0) place = place.Length > 0 ? $"{place} (Rank {c.Rank})" : $"Rank {c.Rank}";
         else if (place.Length == 0 && area.Length > 0) place = area == "Grounds" ? "The Grounds" : area;
         if (place.Length > 0) parts.Add(place);
         return string.Join(" · ", parts);
-    }
-
-    public static string Clock(int minute, bool use24Hour)
-    {
-        int h = minute / 60, m = minute % 60;
-        if (use24Hour) return $"{h:00}:{m:00}";
-        return $"{(h % 12 == 0 ? 12 : h % 12)}:{m:00} {(h < 12 ? "AM" : "PM")}";
     }
 }
