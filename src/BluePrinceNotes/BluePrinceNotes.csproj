@@ -6,7 +6,7 @@
     <Nullable>disable</Nullable>
     <AssemblyName>BluePrinceNotes</AssemblyName>
     <RootNamespace>BluePrinceNotes</RootNamespace>
-    <Version>0.1.0</Version>
+    <Version>1.0.0</Version>
     <Authors>Lucas Pospor</Authors>
     <Description>Blue Prince Notes: an in-game notepad for Blue Prince (MelonLoader)</Description>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
