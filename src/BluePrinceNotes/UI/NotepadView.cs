@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Il2CppInterop.Runtime;
+using BluePrinceNotes.Game;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Il2CppTMPro;
 using UnityEngine;
@@ -46,7 +47,7 @@ internal sealed class NotepadView
 
     private GameObject _root;
     private RectTransform _panel, _listArea, _viewport, _selLayer;
-    private RawImage _paper;
+    private RawImage _paper, _pointer;
     private TextMeshProUGUI _header, _hint, _search, _empty, _body, _marker, _probe;
     private Image _caret, _rowMark, _strike;
     private readonly List<Image> _selection = new();
@@ -99,7 +100,7 @@ internal sealed class NotepadView
         if (_root != null) UnityEngine.Object.Destroy(_root);
         _root = null;
         _panel = _listArea = _viewport = _selLayer = null;
-        _paper = null;
+        _paper = _pointer = null;
         _header = _hint = _search = _empty = _body = _marker = _probe = null;
         _caret = _rowMark = _strike = null;
         _selection.Clear();
@@ -329,7 +330,7 @@ internal sealed class NotepadView
 
     // ------------------------------------------------------------------ list
 
-    private int _listTop;
+    private int _listTop, _listFirst, _listFit, _listCount;
     private string _listMarkKey;
 
     public void ShowList(string header, string hint, string search, IReadOnlyList<ListRow> rows, int selected, string empty)
@@ -351,6 +352,9 @@ internal sealed class NotepadView
         }
         int fit = Mathf.Clamp((_n - first) / 2, 1, MaxRows);
         int count = rows?.Count ?? 0;
+        _listFirst = first;
+        _listFit = fit;
+        _listCount = count;
         if (selected >= 0 && selected < _listTop) _listTop = selected;
         if (selected >= _listTop + fit) _listTop = selected - fit + 1;
         _listTop = Mathf.Clamp(_listTop, 0, Mathf.Max(0, count - fit));
@@ -794,6 +798,78 @@ internal sealed class NotepadView
         return best;
     }
 
+    // ------------------------------------------------------------------ mouse
+
+    private Vector2 _mouseAtOpen;
+    private bool _mouseMoved;
+
+    /// <summary>The pointer is shown (the mouse has moved since the notepad opened).</summary>
+    public bool PointerShown => _mouseMoved;
+
+    /// <summary>The notepad opened: the pointer shows once the mouse moves (a gamepad player never sees it).</summary>
+    public void ResetPointer()
+    {
+        _mouseAtOpen = Input.mousePosition;
+        _mouseMoved = false;
+    }
+
+    /// <summary>Draws the game's pointer on top of the page (the game's own copy is hidden, see GamePointer).</summary>
+    public void UpdatePointer()
+    {
+        if (_pointer == null) return;
+        Vector2 m = Input.mousePosition;
+        if (!_mouseMoved && (m - _mouseAtOpen).sqrMagnitude > 4f) _mouseMoved = true;
+        var tex = _mouseMoved ? GamePointer.Texture : null;
+        bool show = tex != null;
+        if (_pointer.gameObject.activeSelf != show) _pointer.gameObject.SetActive(show);
+        if (!show) return;
+        if (_pointer.texture == null) _pointer.texture = tex;
+        float size = 0.09f * Screen.height;  // the arrow itself is about 0.29 of the texture: ~28 px at 1080p
+        var rt = _pointer.rectTransform;
+        rt.sizeDelta = new Vector2(size, size);
+        rt.anchoredPosition = m;
+        rt.SetAsLastSibling();
+    }
+
+    /// <summary>A screen point in page px (x right, y down from the page's top-left corner).</summary>
+    private bool PagePoint(Vector2 screen, out Vector2 p)
+    {
+        p = default;
+        if (_panel == null || !RectTransformUtility.ScreenPointToLocalPointInRectangle(_panel, screen, null, out var local))
+            return false;
+        p = new Vector2(local.x + _W / 2f, _H / 2f - local.y);
+        return true;
+    }
+
+    public bool InsidePage(Vector2 screen) => PagePoint(screen, out var p) && p.x >= 0f && p.x <= _W && p.y >= 0f && p.y <= _H;
+
+    /// <summary>The editor's text area (with a little slack), where a click places the caret.</summary>
+    public bool InsideText(Vector2 screen) =>
+        PagePoint(screen, out var p) && p.x >= _X0 - 0.5f * _s && p.x <= _X1 + 0.5f * _s && p.y >= _T - 0.3f * _s && p.y <= _T + _n * _L;
+
+    /// <summary>The list row under a screen point (index into the rows last shown), or -1.</summary>
+    public int RowAt(Vector2 screen)
+    {
+        if (!PagePoint(screen, out var p)) return -1;
+        if (p.x < _M - 1.5f * _s || p.x > _X1 || p.y < _T || p.y >= _T + _n * _L) return -1;
+        int line = Mathf.FloorToInt((p.y - _T) / _L) - _listFirst;
+        if (line < 0) return -1;
+        int i = line / 2;
+        if (i >= _listFit) return -1;
+        int n = _listTop + i;
+        return n < _listCount ? n : -1;
+    }
+
+    /// <summary>The text index nearest a screen point in the editor (above or below the view counts as the edge).</summary>
+    public int IndexAt(Vector2 screen)
+    {
+        if (_body == null || !RectTransformUtility.ScreenPointToLocalPointInRectangle(_body.rectTransform, screen, null, out var local))
+            return -1;
+        if (_n2 == 0) return 0;
+        int line = Mathf.Clamp(Mathf.FloorToInt(-local.y / _L), 0, LineCount - 1);
+        return AtX(line, local.x);
+    }
+
     // ------------------------------------------------------------------ building
 
     private readonly Dictionary<IntPtr, string> _shown = new();
@@ -904,6 +980,16 @@ internal sealed class NotepadView
         Anchor(_caret.rectTransform);
         viewGo.SetActive(false);
 
+        // The pointer goes on top of everything; its pivot is the arrow's tip in the game's 1-CURSOR texture.
+        var pointerGo = new GameObject("Pointer");
+        pointerGo.transform.SetParent(_root.transform, false);
+        _pointer = pointerGo.AddComponent<RawImage>();
+        _pointer.raycastTarget = false;
+        var pt = _pointer.rectTransform;
+        pt.anchorMin = pt.anchorMax = Vector2.zero;
+        pt.pivot = new Vector2(0.492f, 0.651f);
+        pointerGo.SetActive(false);
+
         _builtFor = fontName;
         _geomKey = null;
         Core.Log.Msg($"[Notepad] using game font '{font.name}'");
@@ -928,7 +1014,7 @@ internal sealed class NotepadView
     }
 
     /// <summary>The wanted font, else TypeNeat SDF, else TMP's default (LiberationSans, always loaded).</summary>
-    private static TMP_FontAsset FindFont(string want, out bool fallback)
+    internal static TMP_FontAsset FindFont(string want, out bool fallback)
     {
         TMP_FontAsset found = null, neat = null;
         foreach (var f in Resources.FindObjectsOfTypeAll<TMP_FontAsset>())

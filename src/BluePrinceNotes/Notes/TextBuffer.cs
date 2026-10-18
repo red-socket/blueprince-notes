@@ -163,6 +163,27 @@ internal sealed class TextBuffer
         return _sb.Length;
     }
 
+    /// <summary>Selects the word (or run of punctuation) at index i, e.g. on a double click.</summary>
+    public void SelectWordAt(int i)
+    {
+        i = Snap(Math.Clamp(i, 0, _sb.Length));
+        int start = i, end = i;
+        if (i < _sb.Length && !char.IsWhiteSpace(_sb[i]))
+        {
+            bool word = IsWord(_sb[i]);
+            while (start > 0 && !char.IsWhiteSpace(_sb[start - 1]) && IsWord(_sb[start - 1]) == word) start--;
+            while (end < _sb.Length && !char.IsWhiteSpace(_sb[end]) && IsWord(_sb[end]) == word) end++;
+        }
+        else if (i > 0 && !char.IsWhiteSpace(_sb[i - 1]))
+        {
+            bool word = IsWord(_sb[i - 1]);  // just after a word
+            while (start > 0 && !char.IsWhiteSpace(_sb[start - 1]) && IsWord(_sb[start - 1]) == word) start--;
+        }
+        Anchor = start;
+        Caret = end;
+        _lastKind = EditKind.None;
+    }
+
     public void SelectAll()
     {
         Anchor = 0;

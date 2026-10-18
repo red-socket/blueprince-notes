@@ -25,8 +25,10 @@ namespace BluePrinceNotes.Features;
 /// player for its own reasons (a cutscene, a card) or opens a menu, the notepad closes and leaves the player to
 /// the game.
 ///
-/// Closing (the hotkey anywhere, Esc on the list) hides the panel at once and unfreezes once Esc and the hotkey are
-/// released, so the key press can't also open the pause menu. The emergency key closes and unfreezes no matter what.
+/// Closing (the hotkey anywhere, Esc on the list, a click outside the page) hides the panel at once and unfreezes
+/// once those keys and the mouse buttons are released, so the press can't also open the pause menu or click the
+/// world. The emergency key closes and unfreezes no matter what. When the hotkey can't open the notepad, a short
+/// message says so. While open, the game's own mouse pointer is hidden and drawn on top of the page instead.
 /// </summary>
 public class NotepadFeature : Feature
 {
@@ -69,6 +71,7 @@ public class NotepadFeature : Feature
 
     private readonly NotepadView _view = new();
     private readonly Notebook _book = new();
+    private readonly Toast _toast = new();
     private bool _wasFocused = true;
 
     protected override void CreatePrefs()
@@ -106,6 +109,8 @@ public class NotepadFeature : Feature
         _freeSince = -1f;
         CodeGuard.Forget();
         InputMethodRestore();
+        GamePointer.Restore();
+        _toast.Destroy();
         Player.Reset();
         Estate.Reset();
         _view.Destroy();
@@ -124,6 +129,7 @@ public class NotepadFeature : Feature
     {
         // Saves: a pending one, and right away when the game loses focus (alt-tab, or about to be closed).
         _book.Tick();
+        _toast.Tick();
         bool focused = Application.isFocused;
         if (_wasFocused && !focused) _book.FocusLost();
         _wasFocused = focused;
@@ -178,23 +184,36 @@ public class NotepadFeature : Feature
         _freeSince = -1f;
     }
 
-    private string CantOpenReason()
+    /// <summary>Why the notepad can't open now (for the log), and what to tell the player; null when it can.</summary>
+    private string CantOpenReason(out string message)
     {
-        if (!Estate.DayRunning()) return "no day is running";
-        if (MenuOpen()) return "a game menu is open";
+        message = "Notes can't open right now";
+        if (!Estate.DayRunning())
+        {
+            message = "Notes only open during a day";
+            return "no day is running";
+        }
+        if (MenuOpen())
+        {
+            message = "Close the menu to open your notes";
+            return "a game menu is open";
+        }
         if (!Player.IsFree()) return $"the player is busy (state '{Player.State}')";
         if (_freeSince < 0f || Time.unscaledTime - _freeSince < FreeBeforeOpen) return "the player only just got free";
+        message = null;
         return null;
     }
 
     private void TryOpen()
     {
-        var why = CantOpenReason();
+        var why = CantOpenReason(out var message);
         if (why != null)
         {
             Core.Log.Msg($"[{Name}] can't open now: {why}");
+            _toast.Show(message, _fontPref.Value);
             return;
         }
+        _toast.Hide();
         if (!Player.Send("QuickFreeze")) return;
         _ownFreeze = true;
         _phase = Phase.Open;
@@ -203,6 +222,8 @@ public class NotepadFeature : Feature
         _clean = true;
         CodeGuard.Engage();
         InputMethodOn();
+        GamePointer.Hide();
+        _view.ResetPointer();
         _book.Opened();
         Debug($"opened, player FSM in '{Player.State}', frozen={Player.Frozen}; code guard: {CodeGuard.Summary}");
         Render();
@@ -214,6 +235,7 @@ public class NotepadFeature : Feature
     {
         CodeGuard.Tick();
         Estate.CancelRecordingHold();
+        GamePointer.Hide();
         if (!Watchdog()) return;
 
         // The hotkey closes; the notebook asks to close on Esc. The frame that opened the notepad is skipped: its keys
@@ -260,7 +282,9 @@ public class NotepadFeature : Feature
 
     private void Render()
     {
-        if (_view.Begin(_fontPref.Value, _fontScale.Value)) _book.Render(_view, _keyPref.Value);
+        if (!_view.Begin(_fontPref.Value, _fontScale.Value)) return;
+        _book.Render(_view, _keyPref.Value);
+        _view.UpdatePointer();
     }
 
     // ------------------------------------------------------------------ close
@@ -278,7 +302,8 @@ public class NotepadFeature : Feature
     {
         CodeGuard.Tick();
         Estate.CancelRecordingHold();
-        bool held = Input.GetKey(KeyCode.Escape) || _key.Held();
+        // Also the mouse: a click outside the page closes, and its release must not reach the unfrozen world.
+        bool held = Input.GetKey(KeyCode.Escape) || _key.Held() || Input.GetMouseButton(0) || Input.GetMouseButton(1);
         _releasedFrames = held ? 0 : _releasedFrames + 1;
         float waited = Time.unscaledTime - _closeRequestedAt;
         if (waited < MaxUnfreezeDelay && (_releasedFrames < 2 || waited < MinUnfreezeDelay)) return;
@@ -340,6 +365,7 @@ public class NotepadFeature : Feature
         try { _book.Closed(); }
         catch (Exception e) { Core.Log.Warning($"[{Name}] saving notes: {e.Message}"); }
         InputMethodRestore();
+        GamePointer.Restore();
         CodeGuard.Release();
         _phase = Phase.Closed;
         _ownFreeze = false;

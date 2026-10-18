@@ -82,6 +82,9 @@ internal sealed class Notebook
         _deleteArmed = null;
         _rowsStale = true;
         _repeat.Reset();
+        _wheelRest = 0f;
+        _dragging = false;
+        _lastClickAt = -1f;
     }
 
     /// <summary>The notepad closed (for any reason): leave the editor and save.</summary>
@@ -109,12 +112,21 @@ internal sealed class Notebook
 
     // ------------------------------------------------------------------ input
 
-    /// <summary>Handles this frame's keys. True when the notepad should close (Esc on the list).</summary>
+    /// <summary>
+    /// Handles this frame's keys and mouse. True when the notepad should close (Esc on the list, or a click outside
+    /// the page).
+    /// </summary>
     public bool HandleInput(NotepadView view)
     {
         bool esc = Input.GetKeyDown(KeyCode.Escape);
-        return _mode == Mode.List ? ListInput(esc) : EditorInput(view, esc);
+        if (Input.GetMouseButtonDown(0) && !view.InsidePage(Input.mousePosition)) return true;
+        return _mode == Mode.List ? ListInput(view, esc) : EditorInput(view, esc);
     }
+
+    private const float DoubleClickTime = 0.35f;
+    private float _wheelRest, _lastClickAt = -1f;
+    private Vector2 _lastClickPos, _lastMouse;
+    private bool _dragging, _hoverNow;
 
     private static bool Ctrl =>
         (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))
@@ -122,7 +134,7 @@ internal sealed class Notebook
 
     private static bool Shift => Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
 
-    private bool ListInput(bool esc)
+    private bool ListInput(NotepadView view, bool esc)
     {
         if (esc)
         {
@@ -154,7 +166,35 @@ internal sealed class Notebook
         }
 
         int count = Shown.Count;
+
+        // A click on a note opens it.
+        if (Input.GetMouseButtonDown(0))
+        {
+            int row = view.RowAt(Input.mousePosition);
+            if (row >= 0 && row < count)
+            {
+                _selected = row;
+                OpenNote(Shown[row]);
+                return false;
+            }
+        }
+
         int before = _selected;
+        // The highlight follows the mouse over the notes: when it moves, and when the list comes back from the editor
+        // with the pointer over a note. Keys still move it; the mouse takes over again when it moves.
+        Vector2 m = Input.mousePosition;
+        bool moved = (m - _lastMouse).sqrMagnitude > 0.25f;
+        _lastMouse = m;
+        if ((moved || _hoverNow) && view.PointerShown)
+        {
+            int row = view.RowAt(m);
+            if (row >= 0 && row < count) _selected = row;
+        }
+        _hoverNow = false;
+        // The wheel moves the selection, one note per notch (fractions from touchpads add up).
+        _wheelRest += Input.mouseScrollDelta.y;
+        while (_wheelRest >= 1f) { _selected--; _wheelRest -= 1f; }
+        while (_wheelRest <= -1f) { _selected++; _wheelRest += 1f; }
         if (_repeat.Fire(KeyCode.UpArrow)) _selected--;
         if (_repeat.Fire(KeyCode.DownArrow)) _selected++;
         if (_repeat.Fire(KeyCode.PageUp)) _selected -= 8;
@@ -276,6 +316,44 @@ internal sealed class Notebook
         float wheel = Input.mouseScrollDelta.y;
         if (wheel != 0f) view.ScrollLines(-wheel * 3f);
 
+        // Mouse: a click places the caret (Shift+click selects to it), dragging selects, a double click selects a word.
+        if (!composing)
+        {
+            Vector2 m = Input.mousePosition;
+            if (Input.GetMouseButtonDown(0) && view.InsideText(m))
+            {
+                int at = view.IndexAt(m);
+                if (at >= 0)
+                {
+                    bool dbl = Time.unscaledTime - _lastClickAt < DoubleClickTime && (m - _lastClickPos).sqrMagnitude < 100f;
+                    if (dbl)
+                    {
+                        _buffer.SelectWordAt(at);
+                        _dragging = false;
+                        _lastClickAt = -1f;
+                    }
+                    else
+                    {
+                        _buffer.MoveTo(at, shift);
+                        _dragging = true;
+                        _lastClickAt = Time.unscaledTime;
+                        _lastClickPos = m;
+                    }
+                    _goalX = float.NaN;
+                }
+            }
+            else if (_dragging && Input.GetMouseButton(0))
+            {
+                int at = view.IndexAt(m);
+                if (at >= 0 && at != _buffer.Caret)
+                {
+                    _buffer.MoveTo(at, true);
+                    _goalX = float.NaN;
+                }
+            }
+            if (!Input.GetMouseButton(0)) _dragging = false;
+        }
+
         if (_buffer.Version != version)
         {
             _editing.Text = _buffer.Text;
@@ -369,6 +447,7 @@ internal sealed class Notebook
         _editing = null;
         _mode = Mode.List;
         _rowsStale = true;
+        _hoverNow = true;
         Flush();
     }
 
